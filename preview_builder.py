@@ -16,8 +16,8 @@ class PreviewBuilder:
         self.iphone_screenshot_resolution = (1320, 2868)  # Higher resolution for screenshots
         self.ipad_screenshot_resolution = (2064, 2752)    # Higher resolution for screenshots
         
-        self.required_duration = 60  # 1 minute in seconds
-        self.screenshot_count = 10
+        self.required_duration = 30  # 30 seconds preview
+        self.screenshot_count = 6  # Reduce screenshot count proportionally
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
 
@@ -68,11 +68,18 @@ class PreviewBuilder:
             '-i', str(audio_file),
             '-vf', f'scale={width}:{height},pad={width}:{height}:0:0',
             '-t', str(self.required_duration),
-            '-c:v', 'libx264',
-            '-crf', '23',
-            '-preset', 'medium',
-            '-c:a', 'aac',
-            '-b:a', '128k',
+            '-r', '30',  # Set output frame rate to 30 fps
+            '-c:v', 'libx264',  # H.264 codec
+            '-profile:v', 'high',  # High Profile
+            '-level:v', '4.0',  # Level 4.0
+            '-b:v', '11M',  # Target bit rate 10-12 Mbps
+            '-maxrate', '220M',  # VBR max rate ~220 Mbps
+            '-bufsize', '440M',  # VBR buffer size
+            '-preset', 'slow',  # Slower preset for better quality
+            '-c:a', 'aac',  # AAC audio codec
+            '-b:a', '256k',  # 256kbps audio
+            '-ac', '2',  # 2 channel stereo
+            '-ar', '48000',  # 48 kHz sample rate
             str(output_video)
         ]
 
@@ -100,8 +107,8 @@ class PreviewBuilder:
         else:
             width, height = self.ipad_screenshot_resolution
         
-        # Calculate frame positions for exactly 10 screenshots
-        # Use linspace to get exactly 10 evenly spaced positions
+        # Calculate frame positions for exactly 6 screenshots
+        # Use linspace to get exactly 6 evenly spaced positions
         frame_positions = np.linspace(0, total_frames - 1, self.screenshot_count, dtype=int)
         
         screenshot_count = 0
@@ -114,14 +121,14 @@ class PreviewBuilder:
                 frame_resized = cv2.resize(frame, (width, height), interpolation=cv2.INTER_LANCZOS4)
                 screenshot_path = os.path.join(output_dir, f'{device_type}_screenshot_{screenshot_count + 1}.jpg')
                 cv2.imwrite(screenshot_path, frame_resized)
-                print(f"Captured screenshot {screenshot_count + 1}/10: {screenshot_path}")
+                print(f"Captured screenshot {screenshot_count + 1}/6: {screenshot_path}")
                 screenshot_count += 1
         
         cap.release()
         
         # Verify we got all screenshots
         if screenshot_count != self.screenshot_count:
-            print(f"Warning: Only captured {screenshot_count} screenshots instead of {self.screenshot_count}")
+            print(f"Warning: Only captured {screenshot_count} screenshots instead of 6")
 
 def main():
     parser = argparse.ArgumentParser(description='Create App Store preview videos and screenshots')
@@ -132,11 +139,28 @@ def main():
     
     args = parser.parse_args()
     
-    # Validate input files exist
+    # Validate input files exist and have correct extensions
+    supported_video_extensions = ['.mov', '.m4v', '.mp4']
+    supported_audio_extensions = ['.mp3', '.wav', '.aac']
+    
     for input_file in [args.iphone, args.ipad, args.audio]:
         if not os.path.exists(input_file):
             print(f"Error: Input file not found: {input_file}")
             return 1
+        
+        # Check video file extensions
+        if input_file in [args.iphone, args.ipad]:
+            file_ext = os.path.splitext(input_file)[1].lower()
+            if file_ext not in supported_video_extensions:
+                print(f"Error: Unsupported video file extension: {file_ext}. Supported extensions are: {', '.join(supported_video_extensions)}")
+                return 1
+        
+        # Check audio file extensions
+        if input_file == args.audio:
+            file_ext = os.path.splitext(input_file)[1].lower()
+            if file_ext not in supported_audio_extensions:
+                print(f"Error: Unsupported audio file extension: {file_ext}. Supported extensions are: {', '.join(supported_audio_extensions)}")
+                return 1
     
     preview_builder = PreviewBuilder(args.output)
     
