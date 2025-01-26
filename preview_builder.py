@@ -4,6 +4,7 @@ import os
 import numpy as np
 from pathlib import Path
 import argparse
+import json
 
 class PreviewBuilder:
     def __init__(self, output_dir):
@@ -20,6 +21,20 @@ class PreviewBuilder:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
 
+    def _get_audio_duration(self, audio_path):
+        """Get audio duration using FFprobe"""
+        cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'json',
+            str(audio_path)
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        data = json.loads(result.stdout)
+        return float(data['format']['duration'])
+
     def process_video(self, input_video, audio_file, device_type='iphone'):
         # Create screenshots directory if it doesn't exist
         screenshots_dir = self.output_dir / f'{device_type}_screenshots'
@@ -34,15 +49,22 @@ class PreviewBuilder:
         # Generate output video filename
         output_video = self.output_dir / f'{device_type}_preview.mp4'
 
-        # Calculate number of loops needed to reach 1 minute
-        duration = self._get_video_duration(input_video)
-        loops_needed = max(1, int(np.ceil(self.required_duration / duration)))
+        # Calculate number of loops needed to reach 1 minute for both video and audio
+        video_duration = self._get_video_duration(input_video)
+        audio_duration = self._get_audio_duration(audio_file)
+        
+        video_loops = max(1, int(np.ceil(self.required_duration / video_duration)))
+        audio_loops = max(1, int(np.ceil(self.required_duration / audio_duration)))
+
+        print(f"Video duration: {video_duration:.2f}s (looping {video_loops} times)")
+        print(f"Audio duration: {audio_duration:.2f}s (looping {audio_loops} times)")
 
         # Process video with FFmpeg
         ffmpeg_cmd = [
             'ffmpeg', '-y',  # Overwrite output file if exists
-            '-stream_loop', str(loops_needed),
+            '-stream_loop', str(video_loops),
             '-i', str(input_video),
+            '-stream_loop', str(audio_loops),
             '-i', str(audio_file),
             '-vf', f'scale={width}:{height},pad={width}:{height}:0:0',
             '-t', str(self.required_duration),
